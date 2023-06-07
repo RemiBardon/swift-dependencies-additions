@@ -43,30 +43,38 @@
     case deinitialized
   }
 
-  final class LocationManagerDelegate: NSObject, CLLocationManagerDelegate {
-    private var locationContinuations: [CheckedContinuation<CLLocationCoordinate2D, any Error>] = []
-    private var authorizationContinuations: [CheckedContinuation<CLAuthorizationStatus, Never>] = []
+  final class LocationManagerDelegate: NSObject, CLLocationManagerDelegate, Sendable {
+    private let locationContinuations = LockIsolated<[CheckedContinuation<CLLocationCoordinate2D, any Error>]>([])
+    private let authorizationContinuations = LockIsolated<[CheckedContinuation<CLAuthorizationStatus, Never>]>([])
 
     deinit {
-      while !self.locationContinuations.isEmpty {
-        self.locationContinuations.removeFirst().resume(throwing: DelegateError.deinitialized)
+      self.locationContinuations.withValue { continuations in
+        while !continuations.isEmpty {
+          continuations.removeFirst().resume(throwing: DelegateError.deinitialized)
+        }
       }
     }
 
     func registerLocationContinuation(
       _ continuation: CheckedContinuation<CLLocationCoordinate2D, any Error>
     ) {
-      self.locationContinuations.append(continuation)
+      self.locationContinuations.withValue {
+        $0.append(continuation)
+      }
     }
     func registerAuthorizationContinuation(
       _ continuation: CheckedContinuation<CLAuthorizationStatus, Never>
     ) {
-      self.authorizationContinuations.append(continuation)
+      self.authorizationContinuations.withValue {
+        $0.append(continuation)
+      }
     }
 
     private func locationReceived(_ res: Result<CLLocationCoordinate2D, LocationError>) {
-      while !self.locationContinuations.isEmpty {
-        self.locationContinuations.removeFirst().resume(with: res)
+      self.locationContinuations.withValue { continuations in
+        while !continuations.isEmpty {
+          continuations.removeFirst().resume(with: res)
+        }
       }
     }
 
@@ -84,9 +92,11 @@
 
     @available(macOS 11, *)
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-      let status = manager.authorizationStatus
-      while !self.authorizationContinuations.isEmpty {
-        self.authorizationContinuations.removeFirst().resume(returning: status)
+      self.authorizationContinuations.withValue { continuations in
+        let status = manager.authorizationStatus
+        while !continuations.isEmpty {
+          continuations.removeFirst().resume(returning: status)
+        }
       }
     }
 
@@ -95,9 +105,19 @@
       _ manager: CLLocationManager,
       didChangeAuthorization status: CLAuthorizationStatus
     ) {
-      while !self.authorizationContinuations.isEmpty {
-        self.authorizationContinuations.removeFirst().resume(returning: status)
+      self.authorizationContinuations.withValue { continuations in
+        while !continuations.isEmpty {
+          continuations.removeFirst().resume(returning: status)
+        }
       }
+    }
+  }
+
+  fileprivate extension LocationManager {
+    var _delegate: LocationManagerDelegate? {
+      let delegate = self.delegate as? LocationManagerDelegate
+      assert(delegate != nil)
+      return delegate
     }
   }
 
@@ -116,46 +136,43 @@
 
   extension LocationClient {
     static var system: LocationClient {
-      let requestWhenInUseAuthorization = { @Sendable @MainActor in
-        @Dependency(\.locationManager.authorizationStatus) var status
-        if status._isAuthorized {
-          return status
+      withDependencies {
+        $0.locationManager.delegate = LocationManagerDelegate()
+      } operation: {
+        let requestWhenInUseAuthorization = { @Sendable @MainActor in
+          @Dependency(\.locationManager.authorizationStatus) var status
+          if status._isAuthorized {
+            return status
+          }
+
+          return await withCheckedContinuation { continuation in
+            @Dependency(\.locationManager) var locationManager
+            locationManager._delegate?.registerAuthorizationContinuation(continuation)
+            locationManager.requestWhenInUseAuthorization()
+          }
         }
 
-        let locationManagerDelegate = LocationManagerDelegate()
+        let _implementation = Implementation(
+          getLocation: .init {
+            @Dependency(\.locationManager) var locationManager
 
-        return await withCheckedContinuation { continuation in
-          locationManagerDelegate.registerAuthorizationContinuation(continuation)
-          @Dependency(\.locationManager) var locationManager
-          locationManager.requestWhenInUseAuthorization()
-        }
-      }
-
-      let _implementation = Implementation(
-        getLocation: .init {
-          @Dependency(\.locationManager) var locationManager
-          let locationManagerDelegate = LocationManagerDelegate()
-
-          locationManager.delegate = locationManagerDelegate
-          locationManager.desiredAccuracy = locationManager.desiredAccuracy
-          locationManager.activityType = .fitness
-
-          if !locationManager.authorizationStatus._isAuthorized {
-            let status = await requestWhenInUseAuthorization()
-            if !status._isAuthorized {
-              throw LocationError.notAuthorized(status)
+            if !locationManager.authorizationStatus._isAuthorized {
+              let status = await requestWhenInUseAuthorization()
+              if !status._isAuthorized {
+                throw LocationError.notAuthorized(status)
+              }
             }
-          }
 
-          let locationClient = try await withCheckedThrowingContinuation { continuation in
-            locationManagerDelegate.registerLocationContinuation(continuation)
-            locationManager.requestLocation()
-          }
+            let locationClient = try await withCheckedThrowingContinuation { continuation in
+              locationManager._delegate?.registerLocationContinuation(continuation)
+              locationManager.requestLocation()
+            }
 
-          return locationClient
-        }
-      )
-      return LocationClient(_implementation: _implementation)
+            return locationClient
+          }
+        )
+        return LocationClient(_implementation: _implementation)
+      }
     }
 
     static let unimplemented = LocationClient(
