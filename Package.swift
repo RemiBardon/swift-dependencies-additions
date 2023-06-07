@@ -250,6 +250,7 @@ let package = Package(
         .product(name: "Dependencies", package: "swift-dependencies"),
         .product(name: "XCTestDynamicOverlay", package: "xctest-dynamic-overlay"),
         "LocationManagerDependency",
+        "LoggerDependency",
       ]
     ),
 

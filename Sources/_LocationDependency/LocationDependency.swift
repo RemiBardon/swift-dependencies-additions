@@ -3,6 +3,7 @@
   import Dependencies
   @_spi(Internals) import DependenciesAdditionsBasics
   import LocationManagerDependency
+  import LoggerDependency
 
   extension DependencyValues {
     /// An abstraction of `CLLocationManager`, the central object for managing
@@ -48,6 +49,10 @@
     private let authorizationContinuations = LockIsolated<[CheckedContinuation<CLAuthorizationStatus, Never>]>([])
 
     deinit {
+      if #available(macOS 11.0, *) {
+        @Dependency(\.logger) var logger
+        logger.trace("LocationManagerDelegate was deallocated. This may be a unexpected.")
+      }
       self.locationContinuations.withValue { continuations in
         while !continuations.isEmpty {
           continuations.removeFirst().resume(throwing: DelegateError.deinitialized)
@@ -136,8 +141,16 @@
 
   extension LocationClient {
     static var system: LocationClient {
-      withDependencies {
-        $0.locationManager.delegate = LocationManagerDelegate()
+      // `CLLocationManager.delegate` is `weak` so we must extend its lifetime
+      // to prevent it from being deallocated.
+      // In `getLocation`, we capture the value and make sure it stays alive until
+      // the end of the closure.
+      // Since the closure is `@escaping`, we know `locationManagerDelegate` will live
+      // for as long as `LocationClient`.
+      let locationManagerDelegate = LocationManagerDelegate()
+
+      return withDependencies {
+        $0.locationManager.delegate = locationManagerDelegate
       } operation: {
         let requestWhenInUseAuthorization = { @Sendable @MainActor in
           @Dependency(\.locationManager.authorizationStatus) var status
@@ -153,7 +166,7 @@
         }
 
         let _implementation = Implementation(
-          getLocation: .init {
+          getLocation: .init { [locationManagerDelegate] in
             @Dependency(\.locationManager) var locationManager
 
             if !locationManager.authorizationStatus._isAuthorized {
@@ -167,6 +180,8 @@
               locationManager._delegate?.registerLocationContinuation(continuation)
               locationManager.requestLocation()
             }
+
+            withExtendedLifetime(locationManagerDelegate) {}
 
             return locationClient
           }
