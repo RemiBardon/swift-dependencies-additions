@@ -178,6 +178,10 @@
 
             let locationClient = try await withCheckedThrowingContinuation { continuation in
               locationManager._delegate?.registerLocationContinuation(continuation)
+
+              // FIX: Calling `requestLocation` twice does not work. This seems to be a fix.
+              locationManager.stopUpdatingLocation()
+
               locationManager.requestLocation()
             }
 
