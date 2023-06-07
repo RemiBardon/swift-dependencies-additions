@@ -152,6 +152,10 @@
             locationManager.requestLocation()
           }
 
+          // Stop updating location as `requestLocation` starts it.
+          // Without this, calling `requestLocation` a second time does nothing.
+          locationManager.stopUpdatingLocation()
+
           return locationClient
         }
       )
