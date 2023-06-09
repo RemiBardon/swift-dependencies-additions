@@ -95,7 +95,7 @@
       self.locationReceived(.failure(LocationError.error(error as! CLError)))
     }
 
-    @available(macOS 11, *)
+    @available(macOS 11.0, iOS 14.0, watchOS 7.0, tvOS 14.0, *)
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
       self.authorizationContinuations.withValue { continuations in
         let status = manager.authorizationStatus
@@ -105,7 +105,10 @@
       }
     }
 
-    @available(macOS, deprecated: 11)
+    @available(macOS, introduced: 10.7, deprecated: 11.0)
+    @available(iOS, introduced: 4.2, deprecated: 14.0)
+    @available(watchOS, introduced: 2.0, deprecated: 7.0)
+    @available(tvOS, introduced: 9.0, deprecated: 14.0)
     func locationManager(
       _ manager: CLLocationManager,
       didChangeAuthorization status: CLAuthorizationStatus
