@@ -49,7 +49,7 @@
     private let authorizationContinuations = LockIsolated<[CheckedContinuation<CLAuthorizationStatus, Never>]>([])
 
     deinit {
-      if #available(macOS 11.0, *) {
+      if #available(macOS 11.0, iOS 14.0, watchOS 7.0, tvOS 14.0, *) {
         @Dependency(\.logger) var logger
         logger.trace("LocationManagerDelegate was deallocated. This may be a unexpected.")
       }
