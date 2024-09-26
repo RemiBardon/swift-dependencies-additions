@@ -15,6 +15,7 @@ import PackageDescription
 /// - `CompressionDependency`:         `\.compress` and `\.decompress`
 /// - `DataDependency`:                `\.dataReader` and `\.dataWriter`
 /// - `DeviceDependency`:              `\.device` and `\.deviceCheckDevice`
+/// - `_LocationDependency`:           `\.locationClient`
 /// - `LocationManagerDependency`:     `\.locationManager`
 /// - `LoggerDependency`:              `\.logger`
 /// - `NotificationCenterDependency`:  `\.notificationCenter`
@@ -41,6 +42,7 @@ let package = Package(
     .library(name: "DependenciesAdditions", targets: ["DependenciesAdditions"]),
     .library(name: "_AppStorageDependency", targets: ["_AppStorageDependency"]),
     .library(name: "_CoreDataDependency", targets: ["_CoreDataDependency"]),
+    .library(name: "_LocationDependency", targets: ["_LocationDependency"]),
     .library(name: "_NotificationDependency", targets: ["_NotificationDependency"]),
     .library(name: "_SwiftUIDependency", targets: ["_SwiftUIDependency"]),
   ],
@@ -239,6 +241,23 @@ let package = Package(
       name: "DeviceDependencyTests",
       dependencies: [
         "DeviceDependency"
+      ]
+    ),
+
+    .target(
+      name: "_LocationDependency",
+      dependencies: [
+        .product(name: "Dependencies", package: "swift-dependencies"),
+        .product(name: "XCTestDynamicOverlay", package: "xctest-dynamic-overlay"),
+        "LocationManagerDependency",
+        "LoggerDependency",
+      ]
+    ),
+
+    .testTarget(
+      name: "_LocationDependencyTests",
+      dependencies: [
+        "_LocationDependency"
       ]
     ),
 
